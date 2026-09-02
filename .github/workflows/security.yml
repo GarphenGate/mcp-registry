@@ -1,0 +1,72 @@
+# Security scanning → SARIF (public repo: uploads straight to the Security tab).
+# Defensive only: scans this repo's own code and dependencies.
+name: Security
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '23 6 * * 6'   # Sat 06:23 UTC, staggered
+permissions:
+  contents: read
+jobs:
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ go ]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "codeql-${{ matrix.language }}"
+          output: codeql-results
+      - name: Upload CodeQL SARIF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sarif-codeql-${{ matrix.language }}
+          path: codeql-results/*.sarif
+          retention-days: 14
+          if-no-files-found: warn
+
+  trivy-fs:
+    name: Trivy filesystem
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy filesystem scan → SARIF
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scanners: vuln,secret,misconfig
+          format: sarif
+          output: trivy-fs.sarif
+          severity: CRITICAL,HIGH,MEDIUM
+          ignore-unfixed: true
+      - name: Upload Trivy SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+      - name: Upload Trivy SARIF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sarif-trivy-fs
+          path: trivy-fs.sarif
+          retention-days: 14
+          if-no-files-found: warn
